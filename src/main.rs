@@ -16,47 +16,46 @@ async fn main() -> Result<(), reqwest::Error> {
         },
     );
 
+    eprintln!("Get 10.0.0.6");
     let res = reqwest::get(urls.0).await?;
-
     let body = res.text().await?;
+    
+    eprintln!("Get addresses");
     let parsed = parse_body(body);
-    if let Some((hrun_mac, hrun_cip, hrun_oip)) = parsed {
-        eprintln!("{:?}", (&hrun_mac, &hrun_cip, &hrun_oip));
-        eprintln!(
-            "{:?}",
-            urls.1(hrun_mac.as_str(), hrun_cip.as_str(), hrun_oip.as_str(),)
-        );
-
-        let res = reqwest::get(urls.1(
+    let res = if let Some((hrun_mac, hrun_cip, hrun_oip)) = parsed {
+        reqwest::get(urls.1(
             hrun_mac.as_str(),
             hrun_cip.as_str(),
             hrun_oip.as_str(),
         ))
-        .await?;
-
-        let url = res.url();
-
-        let query = url.query_pairs().find(|(key, _)| key == "session_token");
-        if let Some((_, token)) = query {
-            let client = reqwest::Client::new();
-            let res = client
-                .post(urls.2(token.into_owned().as_str()))
-                .body(r#"{"email":"m@m.m"}"#)
-                .send()
-                .await?;
-            if res.status().is_success() {
-                eprintln!("Success");
-            } else {
-                eprintln!("Something went wrong!");
-            }
-        } else {
-            eprintln!("Missing Token!");
-        }
+        .await?
     } else {
-        eprintln!("Nothing to parse")
-    }
-    eprintln!("Done");
+        eprintln!("Nothing to parse");
+        return Ok(());
+    };
+    
+    eprintln!("Get Token");
+    let url = res.url();
+    let query = url.query_pairs().find(|(key, _)| key == "session_token");
+    let res = if let Some((_, token)) = query {
+        let client = reqwest::Client::new();
+        client
+            .post(urls.2(token.into_owned().as_str()))
+            .body(r#"{"email":"m@m.m"}"#)
+            .send()
+            .await?
+    } else {
+        eprintln!("Missing Token!");
+        return Ok(());
+    };
 
+    if res.status().is_success() {
+        eprintln!("Success");
+    } else {
+        eprintln!("Something went wrong!");
+    }
+
+    eprintln!("-- Done --");
     Ok(())
 }
 
