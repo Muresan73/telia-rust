@@ -1,5 +1,7 @@
+use std::time::Duration;
+
 #[tokio::main]
-async fn main() -> Result<(), &'static str> {
+async fn main() -> Result<(), CrawlError> {
     let urls = (
         "http://10.0.0.6/sd/init?scheme=http&host=10.0.0.6&path=%2f",
         |hrun_mac: &str, hrun_cip: &str, hrun_oip: &str| {
@@ -16,20 +18,27 @@ async fn main() -> Result<(), &'static str> {
         },
     );
 
+    let five_seconds = Duration::new(5, 0);
+    let client = reqwest::Client::builder()
+        .connect_timeout(five_seconds)
+        .build()
+        .unwrap();
+
     eprintln!("Get 10.0.0.6");
-    let res = reqwest::get(urls.0).await.or(Err("Request error"))?;
-    let body = res.text().await.or(Err("No text"))?;
+    let res = client.get(urls.0).send().await?;
+    let body = res.text().await?;
 
     eprintln!("Get addresses");
     let parsed = parse_body(body).ok_or("Nothing to parse")?;
     let (hrun_mac, hrun_cip, hrun_oip) = parsed;
-    let res = reqwest::get(urls.1(
-        hrun_mac.as_str(),
-        hrun_cip.as_str(),
-        hrun_oip.as_str(),
-    ))
-    .await
-    .or(Err("Request error"))?;
+    let res = client
+        .get(urls.1(
+            hrun_mac.as_str(),
+            hrun_cip.as_str(),
+            hrun_oip.as_str(),
+        ))
+        .send()
+        .await?;
 
     eprintln!("Get Token");
     let url = res.url();
@@ -38,18 +47,16 @@ async fn main() -> Result<(), &'static str> {
         .find(|(key, _)| key == "session_token")
         .ok_or("Missing Token!")?;
 
-    let client = reqwest::Client::new();
     client
         .post(urls.2(token.into_owned().as_str()))
         .body(r#"{"email":"m@m.m"}"#)
         .send()
-        .await
-        .or(Err("Registrer email error"))?;
+        .await?;
 
     if res.status().is_success() {
         eprintln!("Success");
     } else {
-        return Err("Something went wrong!");
+        return Err("Something went wrong!".into());
     }
 
     eprintln!("-- Done --");
@@ -80,3 +87,19 @@ pub fn parse_body(body: String) -> Option<(String, String, String)> {
     Some((hrun_mac.into(), hrun_cip.into(), hrun_oip.into()))
 }
 
+#[derive(Debug)]
+enum CrawlError {
+    StrErr(&'static str),
+    ReqErr(reqwest::Error),
+}
+
+impl From<&'static str> for CrawlError {
+    fn from(err: &'static str) -> CrawlError {
+        CrawlError::StrErr(err)
+    }
+}
+impl From<reqwest::Error> for CrawlError {
+    fn from(err: reqwest::Error) -> CrawlError {
+        CrawlError::ReqErr(err)
+    }
+}
